@@ -204,7 +204,7 @@ def test_analysis_prompt_contains_supplied_results(analysis_request):
     prompt = ai._build_analysis_prompt(analysis_request)
 
     assert '"status_code": 500' in prompt
-    assert '"expected_status_codes": [\\n      200\\n    ]' in prompt
+    assert '"expected_status_codes": [\n      200\n    ]' in prompt
     assert "Internal Server Error" in prompt
 
 
@@ -230,12 +230,12 @@ def build_live_context():
 
 
 def print_analysis(label, response):
-    print("\\n" + "=" * 50)
+    print("\n" + "=" * 50)
     print(label)
     print("=" * 50)
     print("SUMMARY")
     print(response.summary)
-    print(f"\\nFINDINGS ({len(response.findings)})")
+    print(f"\nFINDINGS ({len(response.findings)})")
 
     for index, finding in enumerate(response.findings, start=1):
         print(f"[{index}] {finding.title}")
@@ -244,7 +244,7 @@ def print_analysis(label, response):
         print(f"Description: {finding.description}")
         print(f"Recommendation: {finding.recommendation}")
 
-    print("\\nSUGGESTIONS")
+    print("\nSUGGESTIONS")
     if response.suggestions:
         for suggestion in response.suggestions:
             print(f"- {suggestion}")
@@ -307,7 +307,7 @@ def main():
             test_results=test_results,
             instructions=instructions,
         )
-        print(f"\\nAnalyzing scenario: {label}")
+        print(f"\nAnalyzing scenario: {label}")
         response = ai.analyze_results(request)
         print_analysis(label, response)
 
