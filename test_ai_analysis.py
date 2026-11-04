@@ -204,14 +204,12 @@ def test_analysis_prompt_contains_supplied_results(analysis_request):
     prompt = ai._build_analysis_prompt(analysis_request)
 
     assert '"status_code": 500' in prompt
-    assert '"expected_status_codes": [\n      200\n    ]' in prompt
+    assert '"expected_status_codes": [\\n      200\\n    ]' in prompt
     assert "Internal Server Error" in prompt
 
 
-
-def main():
-    """Run a real analysis against the locally running Ollama model."""
-    context = APIContext(
+def build_live_context():
+    return APIContext(
         name="User API",
         base_url="https://api.example.com",
         description="API for managing users",
@@ -230,60 +228,88 @@ def main():
         ],
     )
 
-    request = AIRequest(
-        request_type=AIRequestType.RESULT_ANALYSIS,
-        api_context=context,
-        test_results=[
-            {
-                "test_name": "List users - server error",
-                "endpoint": "/users",
-                "method": "GET",
-                "status": "failed",
-                "status_code": 500,
-                "expected_status_codes": [200],
-                "response_time_ms": 125,
-                "response_body": {
-                    "detail": "Internal Server Error",
-                },
-                "error": "Unexpected HTTP status code: 500",
-            }
-        ],
-        instructions=(
-            "Identify only issues directly supported by these results. "
-            "Do not infer a root cause that is not shown by the evidence."
-        ),
-    )
 
-    ai = OllamaAI()
-    print("Analyzing test results with the local Ollama model...\\n")
-
-    response = ai.analyze_results(request)
-
-    print("=" * 50)
-    print("ANALYSIS SUMMARY")
-    print("=" * 50)
-    print(response.summary)
-
+def print_analysis(label, response):
     print("\\n" + "=" * 50)
-    print(f"FINDINGS ({len(response.findings)})")
+    print(label)
     print("=" * 50)
+    print("SUMMARY")
+    print(response.summary)
+    print(f"\\nFINDINGS ({len(response.findings)})")
 
     for index, finding in enumerate(response.findings, start=1):
-        print(f"\\n[{index}] {finding.title}")
+        print(f"[{index}] {finding.title}")
         print(f"Severity: {finding.severity.value}")
         print(f"Endpoint: {finding.endpoint}")
         print(f"Description: {finding.description}")
         print(f"Recommendation: {finding.recommendation}")
 
-    print("\\n" + "=" * 50)
-    print("SUGGESTIONS")
-    print("=" * 50)
-
+    print("\\nSUGGESTIONS")
     if response.suggestions:
         for suggestion in response.suggestions:
             print(f"- {suggestion}")
     else:
         print("No additional suggestions.")
+
+
+def main():
+    """Run failure and success analyses against the local Ollama model."""
+    context = build_live_context()
+    ai = OllamaAI()
+
+    scenarios = [
+        (
+            "FAILED TEST: unexpected HTTP 500",
+            [
+                {
+                    "test_name": "List users - server error",
+                    "endpoint": "/users",
+                    "method": "GET",
+                    "status": "failed",
+                    "status_code": 500,
+                    "expected_status_codes": [200],
+                    "response_time_ms": 125,
+                    "response_body": {"detail": "Internal Server Error"},
+                    "error": "Unexpected HTTP status code: 500",
+                }
+            ],
+            "Identify only issues directly supported by these results. "
+            "Do not infer a root cause that is not shown by the evidence.",
+        ),
+        (
+            "SUCCESSFUL TEST: expected HTTP 200",
+            [
+                {
+                    "test_name": "List users - successful response",
+                    "endpoint": "/users",
+                    "method": "GET",
+                    "status": "passed",
+                    "status_code": 200,
+                    "expected_status_codes": [200],
+                    "response_time_ms": 125,
+                    "response_body": [
+                        {"id": 1, "name": "Alice"},
+                        {"id": 2, "name": "Bob"},
+                    ],
+                    "error": None,
+                }
+            ],
+            "Report only issues directly supported by these results. "
+            "If no issue is demonstrated, return an empty findings list. "
+            "Do not invent vulnerabilities or problems.",
+        ),
+    ]
+
+    for label, test_results, instructions in scenarios:
+        request = AIRequest(
+            request_type=AIRequestType.RESULT_ANALYSIS,
+            api_context=context,
+            test_results=test_results,
+            instructions=instructions,
+        )
+        print(f"\\nAnalyzing scenario: {label}")
+        response = ai.analyze_results(request)
+        print_analysis(label, response)
 
 
 if __name__ == "__main__":
