@@ -8,7 +8,7 @@ from app.core.ai.models import (
     FindingSeverity,
 )
 from app.core.ai.ollama_engine import OllamaAI
-from app.core.context.models import APIContext, Endpoint, HTTPMethod
+from app.core.context.models import APIContext, Endpoint, HTTPMethod, Response
 
 
 @pytest.fixture
@@ -206,3 +206,85 @@ def test_analysis_prompt_contains_supplied_results(analysis_request):
     assert '"status_code": 500' in prompt
     assert '"expected_status_codes": [\n      200\n    ]' in prompt
     assert "Internal Server Error" in prompt
+
+
+
+def main():
+    """Run a real analysis against the locally running Ollama model."""
+    context = APIContext(
+        name="User API",
+        base_url="https://api.example.com",
+        description="API for managing users",
+        endpoints=[
+            Endpoint(
+                path="/users",
+                method=HTTPMethod.GET,
+                description="Return a paginated list of users.",
+                responses=[
+                    Response(
+                        status_code=200,
+                        description="Users returned successfully.",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    request = AIRequest(
+        request_type=AIRequestType.RESULT_ANALYSIS,
+        api_context=context,
+        test_results=[
+            {
+                "test_name": "List users - server error",
+                "endpoint": "/users",
+                "method": "GET",
+                "status": "failed",
+                "status_code": 500,
+                "expected_status_codes": [200],
+                "response_time_ms": 125,
+                "response_body": {
+                    "detail": "Internal Server Error",
+                },
+                "error": "Unexpected HTTP status code: 500",
+            }
+        ],
+        instructions=(
+            "Identify only issues directly supported by these results. "
+            "Do not infer a root cause that is not shown by the evidence."
+        ),
+    )
+
+    ai = OllamaAI()
+    print("Analyzing test results with the local Ollama model...\\n")
+
+    response = ai.analyze_results(request)
+
+    print("=" * 50)
+    print("ANALYSIS SUMMARY")
+    print("=" * 50)
+    print(response.summary)
+
+    print("\\n" + "=" * 50)
+    print(f"FINDINGS ({len(response.findings)})")
+    print("=" * 50)
+
+    for index, finding in enumerate(response.findings, start=1):
+        print(f"\\n[{index}] {finding.title}")
+        print(f"Severity: {finding.severity.value}")
+        print(f"Endpoint: {finding.endpoint}")
+        print(f"Description: {finding.description}")
+        print(f"Recommendation: {finding.recommendation}")
+
+    print("\\n" + "=" * 50)
+    print("SUGGESTIONS")
+    print("=" * 50)
+
+    if response.suggestions:
+        for suggestion in response.suggestions:
+            print(f"- {suggestion}")
+    else:
+        print("No additional suggestions.")
+
+
+if __name__ == "__main__":
+    main()
