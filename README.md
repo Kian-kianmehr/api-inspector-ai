@@ -1,93 +1,120 @@
 # API Inspector AI
 
-API Inspector AI is the companion AI service for [API Inspector](https://github.com/Kian-kianmehr/api-inspector), a developer-focused platform for understanding API contracts and inspecting real API behavior.
+API Inspector AI is the companion AI engine for [API Inspector](https://github.com/Kian-kianmehr/api-inspector), a developer-focused platform for understanding API contracts and inspecting real API behavior.
 
-This repository is developed separately from the main application so that API-specific reasoning and analysis can evolve independently of the Django backend and React frontend.
+This repository is developed separately from the main application so that API-specific reasoning, test generation, and result analysis can evolve independently of the Django backend and React frontend.
 
-> **Development status:** Early development. The initial API context data models are implemented. Validation, inspection planning, AI-assisted analysis, and the service interface are planned but not implemented yet.
+**Development status: Version 1.0 completed.**
 
-## How the repositories fit together
+## How the Repositories Fit Together
 
-Both repositories are parts of the same API Inspector product:
+Both repositories are parts of the same API Inspector product.
 
-| Repository | Responsibility |
-| --- | --- |
-| [api-inspector](https://github.com/Kian-kianmehr/api-inspector) | Main product: Django REST backend, React frontend, accounts, authentication, and user-facing application |
-| [api-inspector-ai](https://github.com/Kian-kianmehr/api-inspector-ai) | Companion AI service: API context processing, inspection planning, and AI-assisted analysis |
+- **[api-inspector](https://github.com/Kian-kianmehr/api-inspector):** The main application, built with Django REST Framework and React. It handles accounts, authentication, API execution, and user-facing features.
+- **[api-inspector-ai](https://github.com/Kian-kianmehr/api-inspector-ai):** The companion AI engine, responsible for API context processing, test generation, and AI-assisted result analysis.
 
-The intended integration is service-to-service. The main application will send normalized API context and sanitized inspection results to the AI service. The AI service will return structured plans, findings, and recommendations.
+The intended integration is service-to-service. The main application provides normalized API context and sanitized inspection results to the AI engine. The AI engine returns structured test plans, findings, and recommendations.
 
-The main application will retain responsibility for user accounts, credentials, permissions, request execution, and security controls. The AI service is not intended to independently execute arbitrary requests against target APIs.
+The main application retains responsibility for user accounts, credentials, permissions, HTTP request execution, and security controls. The AI engine does not independently execute arbitrary requests against target APIs.
 
-## Planned responsibilities
+## Implemented Features
 
-- Represent API definitions in a normalized internal context.
-- Validate API context data before analysis.
-- Help plan relevant API inspection scenarios.
-- Analyze inspection results and identify potential issues.
-- Produce structured findings and recommendations.
-- Expose capabilities to the main application through an internal service API.
+- **API Context Models:** Structured representation of API definitions, endpoints, parameters, request bodies, and responses.
+- **Context Validation:** Validation of API context structures and their fields.
+- **AI Test Generation:** Generation of structured API test cases based on API specifications.
+- **AI Result Analysis:** Analysis of test execution results to identify unexpected behavior and potential issues.
+- **Finding Validation:** Validation of generated findings, severity levels, and recommendations.
+- **Evidence-Based Analysis:** Findings are based on supplied test results rather than unsupported assumptions.
+- **Local AI Integration:** Integration with Ollama using the Qwen 2.5 model.
 
-## Current implementation
+## Testing
 
-The initial context models are in app/core/context/models.py:
+The project includes automated tests covering:
 
-- APIContext: metadata and endpoints for an API.
-- Endpoint: path, HTTP method, parameters, request body, and responses.
-- Parameter: path, query, header, and cookie parameters.
-- RequestBody and BodyField: request body metadata and nested fields.
-- Response and ResponseField: response metadata and nested fields.
+- API context validation.
+- AI request and response validation.
+- Test case generation.
+- Result analysis.
+- Invalid model outputs and unsupported findings.
 
-These classes currently describe API structures in Python. They do not yet import OpenAPI documents, parse live traffic, validate definitions, or call an AI model.
+The automated test suite has passed. The engine has also been evaluated using the local Ollama model with both successful and failed API test scenarios.
 
-## Architecture direction
+## Architecture
 
-1. The main application supplies a normalized API context and sanitized inspection data.
-2. The AI service validates and analyzes that context.
-3. The AI service returns structured plans, findings, and recommendations.
-4. The main application decides which permitted actions to execute and manages the resulting records.
+1. The main application supplies normalized API context and sanitized inspection results.
+2. The AI engine validates the supplied data.
+3. The AI engine generates test plans or analyzes execution results.
+4. Structured results are returned to the main application.
+5. The main application manages execution, permissions, and result storage.
 
-Sensitive credentials and unrestricted target-network access should remain outside the AI reasoning layer.
+Sensitive credentials and unrestricted target-network access remain outside the AI reasoning layer.
 
-## Technology
+## Technology Stack
 
 - Python
-- Python standard library dataclasses and enums for the initial domain models
-- FastAPI is planned for the service interface, but has not been integrated yet
+- Ollama
+- Qwen 2.5
+- Python dataclasses and enums
+- Pytest
 
-## Repository structure
+## Repository Structure
 
-    api-inspector-ai/
-    ├── app/
-    │   └── core/
-    │       └── context/
-    │           └── models.py
-    ├── test_context.py
-    └── .gitignore
-
-The structure will evolve as validation, inspection planning, analysis, and the service interface are implemented.
+```text
+api-inspector-ai/
+├── app/
+│   └── core/
+│       ├── ai/
+│       │   ├── interface.py
+│       │   ├── models.py
+│       │   ├── ollama_engine.py
+│       │   ├── test_cases.py
+│       │   └── validators.py
+│       └── context/
+│           ├── models.py
+│           └── validators.py
+├── test_ai_analysis.py
+├── test_ai_generation.py
+├── test_ai_interface.py
+├── test_ollama_connection.py
+└── test_context.py
+```
 
 ## Development
 
 Clone the repository:
 
-    git clone https://github.com/Kian-kianmehr/api-inspector-ai.git
-    cd api-inspector-ai
+```bash
+git clone https://github.com/Kian-kianmehr/api-inspector-ai.git
+cd api-inspector-ai
+```
 
 Create and activate a virtual environment:
 
-    python -m venv venv
-    source venv/bin/activate
+```bash
+python -m venv venv
+source venv/bin/activate
+```
 
 On Windows PowerShell:
 
-    venv\Scripts\Activate.ps1
+```powershell
+venv\Scripts\Activate.ps1
+```
 
-Run the current context model check:
+Install dependencies:
 
-    python test_context.py
+```bash
+pip install -r requirements.txt
+```
 
+Run the automated tests:
 
-## Related project
+```bash
+python -m pytest -v
+```
+
+Make sure Ollama is installed and the Qwen 2.5 model is available locally before running live AI tests.
+
+## Related Project
 
 - **Main application:** [Kian-kianmehr/api-inspector](https://github.com/Kian-kianmehr/api-inspector)
