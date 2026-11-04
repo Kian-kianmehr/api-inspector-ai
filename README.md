@@ -87,15 +87,6 @@ Run the current context model check:
 
     python test_context.py
 
-## Roadmap
-
-- [x] Initial API context data models
-- [ ] Context validation layer
-- [ ] Tests for context models and validation
-- [ ] Support for importing API specifications, including OpenAPI
-- [ ] Inspection planning engine
-- [ ] AI-assisted result analysis
-- [ ] Internal service API and integration with the main API Inspector application
 
 ## Related project
 
