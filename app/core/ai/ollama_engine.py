@@ -7,6 +7,7 @@ from socket import timeout as SocketTimeout
 from app.core.ai.interface import AIInterface
 from app.core.ai.models import (
     AIRequest,
+    AIRequestType,
     AIResponse,
     AIFinding,
     AITestPlan,
