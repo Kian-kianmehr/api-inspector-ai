@@ -10,6 +10,11 @@ from app.core.ai.models import (
     AIResponse,
     AIFinding,
     AITestPlan,
+    FindingSeverity,
+)
+from app.core.ai.validators import (
+    validate_ai_request,
+    validate_ai_response,
 )
 from app.core.ai.test_cases import TestCase, TestType
 from app.core.context.models import APIContext
@@ -723,8 +728,12 @@ Return valid JSON only.
     # --------------------------------------------------
 
     def generate_tests(self, request: AIRequest) -> AITestPlan:
-        if not isinstance(request, AIRequest):
-            raise TypeError("Expected AIRequest")
+        validate_ai_request(request)
+
+        if request.request_type != AIRequestType.TEST_GENERATION:
+            raise ValueError(
+                "generate_tests requires a TEST_GENERATION request"
+            )
 
         if not isinstance(request.api_context, APIContext):
             raise TypeError("AIRequest contains invalid API context")
@@ -811,10 +820,12 @@ Return valid JSON only.
             f"finding[{index}].severity",
         ).lower()
 
-        if severity not in self.ALLOWED_SEVERITIES:
+        try:
+            severity = FindingSeverity(severity)
+        except ValueError as error:
             raise ValueError(
                 f"Invalid severity in finding #{index}"
-            )
+            ) from error
 
         endpoint_path = item.get("endpoint", "")
 
@@ -854,20 +865,15 @@ Return valid JSON only.
     # --------------------------------------------------
 
     def analyze_results(self, request: AIRequest) -> AIResponse:
-        if not isinstance(request, AIRequest):
-            raise TypeError("Expected AIRequest")
+        validate_ai_request(request)
+
+        if request.request_type != AIRequestType.RESULT_ANALYSIS:
+            raise ValueError(
+                "analyze_results requires a RESULT_ANALYSIS request"
+            )
 
         if not isinstance(request.api_context, APIContext):
             raise TypeError("AIRequest contains invalid API context")
-
-        if not isinstance(request.test_results, list):
-            raise ValueError("test_results must be a list")
-
-        for index, result in enumerate(request.test_results, start=1):
-            if not isinstance(result, dict):
-                raise ValueError(
-                    f"Test result #{index} must be an object"
-                )
 
         prompt = self._build_analysis_prompt(request)
         raw_response = self._generate(prompt)
@@ -907,9 +913,11 @@ Return valid JSON only.
             )
         ]
 
-        return AIResponse(
+        response = AIResponse(
             request_type=request.request_type,
             summary=summary,
             findings=findings,
             suggestions=suggestions,
         )
+        validate_ai_response(response)
+        return response
