@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from app.core.context.models import APIContext
-
+from app.core.ai.test_cases import TestCase
 
 class AIRequestType(str,Enum):
     TEST_GENERATION = "test_generation"
@@ -30,3 +30,10 @@ class AIResponse:
     summary: str
     findings: list[AIFinding] = field(default_factory=list)
     suggestions: list[str]=field(default_factory=list)
+
+
+
+@dataclass
+class AITestPlan:
+    summary: str
+    test_cases: list[TestCase] = field(default_factory=list)
