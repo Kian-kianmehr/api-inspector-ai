@@ -26,7 +26,7 @@ class AIRequest:
 class AIFinding:
     title: str
     description: str
-    severity: str
+    severity: FindingSeverity
     endpoint: str=""
     recommendation: str = ""
 
