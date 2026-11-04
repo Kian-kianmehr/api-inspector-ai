@@ -3,7 +3,14 @@ from enum import Enum
 from app.core.context.models import APIContext
 from app.core.ai.test_cases import TestCase
 
-class AIRequestType(str,Enum):
+class FindingSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AIRequestType(str, Enum):
     TEST_GENERATION = "test_generation"
     RESULT_ANALYSIS = "result_analysis"
 
