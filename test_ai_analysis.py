@@ -91,6 +91,16 @@ def test_analyze_results_accepts_no_findings(
     analysis_request,
 ):
     ai = OllamaAI()
+    analysis_request.test_results = [
+        {
+            "endpoint": "/users",
+            "method": "GET",
+            "status": "passed",
+            "status_code": 200,
+            "expected_status_codes": [200],
+            "passed": True,
+        }
+    ]
     mock_model_response(
         monkeypatch,
         ai,
@@ -314,3 +324,119 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_analysis_adds_evidence_finding_when_model_misses_http_500(
+    monkeypatch,
+    analysis_request,
+):
+    ai = OllamaAI()
+    mock_model_response(
+        monkeypatch,
+        ai,
+        {
+            "summary": "No issues detected.",
+            "findings": [],
+            "suggestions": [],
+        },
+    )
+
+    response = ai.analyze_results(analysis_request)
+
+    assert len(response.findings) == 1
+    assert response.findings[0].severity == FindingSeverity.HIGH
+    assert "500" in response.findings[0].title
+    assert response.findings[0].endpoint == "/users"
+    assert response.suggestions
+
+
+def test_analysis_reports_failed_documented_404_response(
+    monkeypatch,
+    api_context,
+):
+    ai = OllamaAI()
+    request = AIRequest(
+        request_type=AIRequestType.RESULT_ANALYSIS,
+        api_context=api_context,
+        test_results=[
+            {
+                "name": "Get user by ID successfully",
+                "endpoint": "/users",
+                "method": "GET",
+                "status_code": 404,
+                "passed": False,
+            }
+        ],
+    )
+    mock_model_response(
+        monkeypatch,
+        ai,
+        {"summary": "No issues detected.", "findings": [], "suggestions": []},
+    )
+
+    response = ai.analyze_results(request)
+
+    assert len(response.findings) == 1
+    assert response.findings[0].severity == FindingSeverity.MEDIUM
+    assert "404" in response.findings[0].title
+
+
+def test_analysis_does_not_flag_a_passing_documented_response(
+    monkeypatch,
+    api_context,
+):
+    ai = OllamaAI()
+    request = AIRequest(
+        request_type=AIRequestType.RESULT_ANALYSIS,
+        api_context=api_context,
+        test_results=[
+            {
+                "name": "Get users successfully",
+                "endpoint": "/users",
+                "method": "GET",
+                "status_code": 200,
+                "passed": True,
+            }
+        ],
+    )
+    mock_model_response(
+        monkeypatch,
+        ai,
+        {"summary": "No issues detected.", "findings": [], "suggestions": []},
+    )
+
+    response = ai.analyze_results(request)
+
+    assert response.findings == []
+
+
+def test_analysis_detects_expected_status_mismatch(
+    monkeypatch,
+    api_context,
+):
+    ai = OllamaAI()
+    request = AIRequest(
+        request_type=AIRequestType.RESULT_ANALYSIS,
+        api_context=api_context,
+        test_results=[
+            {
+                "name": "Get users successfully",
+                "endpoint": "/users",
+                "method": "GET",
+                "status_code": 201,
+                "expected_status_codes": [200],
+                "passed": True,
+            }
+        ],
+    )
+    mock_model_response(
+        monkeypatch,
+        ai,
+        {"summary": "No issues detected.", "findings": [], "suggestions": []},
+    )
+
+    response = ai.analyze_results(request)
+
+    assert len(response.findings) == 1
+    assert "201" in response.findings[0].description
+    assert "[200]" in response.findings[0].description
