@@ -220,7 +220,8 @@ TEST COVERAGE RULES:
 
 5. Valid negative scenarios include:
    - Omitting a required query parameter.
-   - Omitting a required path parameter when representable.
+   - Do not omit required path parameters. A request cannot be executed
+     when its URL template still contains an unresolved path parameter.
    - Omitting a required header.
    - Omitting a required request body.
    - Omitting a required request body field.
@@ -246,6 +247,8 @@ TEST COVERAGE RULES:
 
 9. Use only documented expected status codes.
    If no response status codes are documented, return [].
+   Prefer documented 2xx responses for positive tests and documented
+   4xx responses for negative tests.
 
 10. For endpoints with no documented required inputs,
     generate a positive test only.
@@ -326,7 +329,10 @@ ADDITIONAL INSTRUCTIONS:
 ANALYSIS PROCESS:
 
 1. Examine every supplied test result.
-2. Identify failed requests, unexpected status codes,
+2. Treat passed=false or status="failed" as a failed test even when
+   the returned status code is documented for another scenario.
+3. Compare status_code with expected_status_codes whenever supplied.
+4. Identify failed requests, unexpected status codes,
    response errors and abnormal response times.
 3. Compare observed behavior with the API specification.
 4. Identify the affected endpoint whenever possible.
@@ -344,7 +350,9 @@ EVIDENCE RULES:
 - Distinguish observed facts from possible explanations.
 - If the root cause is unknown, explicitly say further investigation
   is required.
-- Do not report successful requests as failures.
+- Do not report successful requests as failures unless their actual
+  status code contradicts the supplied expected_status_codes.
+- A documented 404 is still a failure when the individual test expected 200.
 - Do not report the same issue multiple times.
 - Do not invent undocumented endpoints or parameters.
 - Missing information is not proof of a defect.
@@ -1150,7 +1158,18 @@ Do not include explanations outside the JSON object.
                     )
                 )
             )
-            server_error = status_code is not None and 500 <= status_code <= 599
+            server_error = (
+                status_code is not None
+                and 500 <= status_code <= 599
+                and (
+                    explicitly_failed
+                    or unexpected_code
+                    or (
+                        not expected
+                        and status_code not in documented_codes
+                    )
+                )
+            )
 
             if not (explicitly_failed or unexpected_code or server_error):
                 continue
