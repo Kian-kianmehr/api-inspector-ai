@@ -188,38 +188,105 @@ class OllamaAI(AIInterface):
         api_data = self._serialize_context(context)
 
         return f"""
-You are a precise API testing engineer.
+You are an expert API test engineer.
 
-Generate API test cases using only the supplied API specification.
+Your task is to generate useful, realistic and specification-based
+API test cases.
 
 API SPECIFICATION:
 {json.dumps(api_data, ensure_ascii=False, indent=2)}
 
-RULES:
+OBJECTIVE:
 
-1. Use only documented endpoints and HTTP methods.
-2. Never invent parameters, fields, constraints or API behavior.
-3. Never assume undocumented authentication requirements.
-4. Positive tests must satisfy all documented required fields.
-5. Negative tests must violate at least one documented requirement.
-6. Do not invent expected HTTP status codes.
-7. Use only status codes documented for the endpoint.
-8. Use an empty expected_status_codes list if none are documented.
-9. Do not invent boundary values or security vulnerabilities.
-10. Generate edge_case or security tests only when the specification
-    contains enough information to justify them.
+Generate a practical test suite that covers every documented endpoint.
+
+TEST COVERAGE RULES:
+
+1. Generate at least one positive test for every endpoint.
+
+2. Positive tests must:
+   - Use the documented HTTP method and endpoint.
+   - Include every documented required parameter.
+   - Include every required request body field.
+   - Use values matching documented data types.
+   - Include all required nested object fields.
+   - Put documented path parameters in path_params.
+
+3. Generate negative tests whenever the specification provides
+   enough information to construct a valid negative scenario.
+
+4. Negative tests should violate exactly one documented requirement
+   whenever possible.
+
+5. Valid negative scenarios include:
+   - Omitting a required query parameter.
+   - Omitting a required path parameter when representable.
+   - Omitting a required header.
+   - Omitting a required request body.
+   - Omitting a required request body field.
+   - Omitting a required nested request body field.
+   - Providing a value with an incorrect documented data type.
+
+6. Do not create negative tests by inventing undocumented fields,
+   parameters, constraints or API behavior.
+
+7. Do not generate edge_case or security tests.
+   The current specification does not provide sufficient metadata
+   to validate these categories reliably.
+
+8. Never invent:
+   - Endpoints
+   - HTTP methods
+   - Parameters
+   - Request body fields
+   - Data type constraints
+   - Authentication requirements
+   - Boundary values
+   - Expected status codes
+
+9. Use only documented expected status codes.
+   If no response status codes are documented, return [].
+
+10. For endpoints with no documented required inputs,
+    generate a positive test only.
+
 11. Do not duplicate test scenarios.
-12. Prefer a small number of reliable tests over speculative tests.
-13. Use JSON-compatible values for request data.
-14. Do not include explanations outside the JSON response.
+
+12. Use realistic JSON-compatible values.
+
+13. Keep test descriptions short and specific.
+
+14. Generate multiple useful scenarios when the specification
+    supports them, but do not generate speculative tests.
+
+15. Do not add explanations outside the JSON response.
+
+IMPORTANT FIELD RULES:
+
+- headers: Only documented header parameters.
+- query_params: Only documented query parameters.
+- path_params: Only documented path parameters.
+- request_body: Only documented request body fields.
+- expected_status_codes: Only documented response status codes.
+- Use {{}} for empty parameter objects.
+- Use null when the endpoint has no request body.
+
+NEGATIVE TEST RULE:
+
+A negative test must contain an actual violation of the specification.
+Do not label an ordinary successful request as negative.
+
+For a missing required field, omit that field.
+For an invalid data type, use a JSON value of the wrong type.
+Do not introduce an undocumented field to create a negative test.
 
 OUTPUT FORMAT:
 
 {{
     "test_cases": [
         {{
-            "name": "Test name",
-            "description": "Test description",
+            "name": "Get users successfully",
+            "description": "Retrieve users using the documented endpoint",
             "endpoint": "/users",
             "method": "GET",
             "test_type": "positive",
@@ -233,7 +300,7 @@ OUTPUT FORMAT:
 }}
 
 Allowed test_type values:
-positive, negative, edge_case, security.
+positive, negative.
 
 Return valid JSON only.
 """
@@ -304,6 +371,8 @@ IMPORTANT RECOMMENDATION RULES:
   inspecting the failing operation.
 - Do not claim a specific dependency caused the error
   unless the supplied evidence proves it.
+- Recommend retries only when the failure appears transient
+  and the operation is safe to retry.
 
 SEVERITY GUIDELINES:
 
@@ -443,6 +512,7 @@ Do not include explanations outside the JSON object.
         location: str,
         require_required: bool = False,
         allow_type_mismatch: bool = False,
+        allow_missing_required: bool = False,
     ) -> bool:
         if not isinstance(data, dict):
             raise ValueError(f"{location} must be an object")
@@ -484,13 +554,16 @@ Do not include explanations outside the JSON object.
                     f"{location}.{name}",
                     require_required=require_required,
                     allow_type_mismatch=allow_type_mismatch,
+                    allow_missing_required=allow_missing_required,
                 )
 
                 has_violation = has_violation or nested_violation
 
-        if require_required:
-            for field in schema_fields:
-                if field.required and field.name not in data:
+        for field in schema_fields:
+            if field.required and field.name not in data:
+                if allow_missing_required:
+                    has_violation = True
+                elif require_required:
                     raise ValueError(
                         f"Missing required field '{location}.{field.name}'"
                     )
@@ -579,12 +652,15 @@ Do not include explanations outside the JSON object.
         if not body_schema.fields:
             raise ValueError("Request body schema is incomplete")
 
+        is_negative = test_type == TestType.NEGATIVE
+
         return self._validate_schema_fields(
             request_body,
             body_schema.fields,
             "request_body",
-            require_required=(test_type == TestType.POSITIVE),
-            allow_type_mismatch=(test_type == TestType.NEGATIVE),
+            require_required=not is_negative,
+            allow_type_mismatch=is_negative,
+            allow_missing_required=is_negative,
         )
 
     # --------------------------------------------------
