@@ -759,6 +759,7 @@ Do not include explanations outside the JSON object.
             )
 
         missing_required_parameter = False
+        missing_path_parameter = False
 
         for location, values in (
             ("header", headers),
@@ -771,6 +772,8 @@ Do not include explanations outside the JSON object.
                 location,
             )
             missing_required_parameter |= missing
+            if location == "path":
+                missing_path_parameter = missing
 
         cookie_parameters = self._parameter_map(endpoint, "cookie")
 
@@ -795,6 +798,12 @@ Do not include explanations outside the JSON object.
         )
 
         if test_type == TestType.NEGATIVE:
+            if missing_path_parameter:
+                raise ValueError(
+                    "A required path parameter cannot be omitted because "
+                    "the endpoint URL would not be executable"
+                )
+
             if not (missing_required_parameter or body_violation):
                 raise ValueError(
                     "Negative test does not violate a documented requirement"
@@ -923,6 +932,41 @@ Do not include explanations outside the JSON object.
 
         unique_cases = self._deduplicate_test_cases(valid_cases)
 
+        # Fill expected codes from the contract when the model omits them.
+        # Never invent a status code that is absent from the specification.
+        for test_case in unique_cases:
+            if test_case.expected_status_codes:
+                continue
+
+            endpoint = next(
+                (
+                    candidate
+                    for candidate in request.api_context.endpoints
+                    if candidate.path == test_case.endpoint
+                    and candidate.method.value == test_case.method
+                ),
+                None,
+            )
+            if endpoint is None:
+                continue
+
+            if test_case.test_type == TestType.POSITIVE:
+                inferred_codes = [
+                    response.status_code
+                    for response in endpoint.responses
+                    if 200 <= response.status_code < 300
+                ]
+            elif test_case.test_type == TestType.NEGATIVE:
+                inferred_codes = [
+                    response.status_code
+                    for response in endpoint.responses
+                    if 400 <= response.status_code < 500
+                ]
+            else:
+                inferred_codes = []
+
+            test_case.expected_status_codes = sorted(set(inferred_codes))
+
         if not unique_cases:
             details = (
                 "\n".join(rejected_cases)
@@ -1005,6 +1049,217 @@ Do not include explanations outside the JSON object.
         )
 
     # --------------------------------------------------
+    # DETERMINISTIC RESULT CHECKS
+    # --------------------------------------------------
+
+    def _find_result_endpoint(self, result: dict, context: APIContext):
+        path = (
+            result.get("endpoint")
+            or result.get("path")
+            or result.get("url_path")
+        )
+        method = result.get("method")
+
+        if not isinstance(path, str) or not path.strip():
+            return None
+
+        if isinstance(method, str):
+            method = method.upper().strip()
+        else:
+            method = None
+
+        matches = [
+            endpoint
+            for endpoint in context.endpoints
+            if endpoint.path == path.strip()
+            and (method is None or endpoint.method.value == method)
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _build_evidence_findings(
+        self,
+        results: list[dict],
+        context: APIContext,
+    ) -> list[AIFinding]:
+        findings = []
+
+        for index, result in enumerate(results, start=1):
+            endpoint = self._find_result_endpoint(result, context)
+            path = (
+                endpoint.path
+                if endpoint is not None
+                else str(result.get("endpoint") or result.get("path") or "")
+            )
+            method = (
+                endpoint.method.value
+                if endpoint is not None
+                else str(result.get("method") or "").upper()
+            )
+            label = (
+                result.get("test_name")
+                or result.get("name")
+                or result.get("title")
+                or f"Test #{index}"
+            )
+            label = str(label).strip() or f"Test #{index}"
+
+            raw_code = result.get("status_code")
+            status_code = (
+                raw_code
+                if isinstance(raw_code, int) and not isinstance(raw_code, bool)
+                else None
+            )
+
+            expected = result.get("expected_status_codes", [])
+            if not isinstance(expected, list):
+                expected = []
+            expected = [
+                code for code in expected
+                if isinstance(code, int) and not isinstance(code, bool)
+            ]
+
+            raw_status = result.get("status")
+            status_text = (
+                raw_status.lower().strip()
+                if isinstance(raw_status, str)
+                else ""
+            )
+            explicitly_failed = (
+                result.get("passed") is False
+                or status_text in {
+                    "failed", "fail", "error", "errored", "unsuccessful"
+                }
+            )
+
+            documented_codes = (
+                {
+                    response.status_code
+                    for response in endpoint.responses
+                }
+                if endpoint is not None
+                else set()
+            )
+            unexpected_code = (
+                status_code is not None
+                and (
+                    (expected and status_code not in expected)
+                    or (
+                        not expected
+                        and documented_codes
+                        and status_code not in documented_codes
+                    )
+                )
+            )
+            server_error = status_code is not None and 500 <= status_code <= 599
+
+            if not (explicitly_failed or unexpected_code or server_error):
+                continue
+
+            if server_error:
+                severity = FindingSeverity.HIGH
+                title = f"Unexpected HTTP {status_code} server error"
+                evidence = (
+                    f"The request returned HTTP {status_code}, indicating "
+                    "a server-side failure."
+                )
+                recommendation = (
+                    "Inspect the server logs for this request, identify the "
+                    "raised exception, and verify the failing operation before "
+                    "changing the implementation."
+                )
+            elif status_code is not None and 400 <= status_code <= 499:
+                severity = FindingSeverity.MEDIUM
+                title = f"Unexpected HTTP {status_code} response"
+                evidence = (
+                    f"The request returned HTTP {status_code}. "
+                    "The supplied execution result marks this test as failed "
+                    "or the status code differs from its expected values."
+                )
+                recommendation = (
+                    "Check the request parameters and response body, then "
+                    "compare the observed response with the test case's "
+                    "expected behavior."
+                )
+            elif unexpected_code:
+                severity = FindingSeverity.MEDIUM
+                title = "Unexpected HTTP response status"
+                evidence = (
+                    f"The request returned HTTP {status_code}, but the "
+                    f"expected status codes were {expected}."
+                )
+                recommendation = (
+                    "Verify the endpoint behavior and update either the API "
+                    "implementation or the test expectation so they agree."
+                )
+            else:
+                severity = FindingSeverity.MEDIUM
+                title = "API test execution failed"
+                code_note = (
+                    f" The observed HTTP status was {status_code}."
+                    if status_code is not None
+                    else ""
+                )
+                evidence = (
+                    f'The execution result for "{label}" is marked as failed.'
+                    f"{code_note}"
+                )
+                recommendation = (
+                    "Review the response body and execution error for this "
+                    "test, then compare the observed behavior with the "
+                    "documented contract."
+                )
+
+            description = (
+                f"{evidence} Test: {label}."
+                + (
+                    f" Expected status codes: {expected}."
+                    if expected
+                    else ""
+                )
+            )
+            findings.append(
+                AIFinding(
+                    title=title,
+                    description=description,
+                    severity=severity,
+                    endpoint=path,
+                    recommendation=recommendation,
+                )
+            )
+
+        return findings
+
+    def _merge_findings(
+        self,
+        model_findings: list[AIFinding],
+        evidence_findings: list[AIFinding],
+    ) -> list[AIFinding]:
+        merged = list(model_findings)
+
+        for evidence in evidence_findings:
+            duplicate = any(
+                item.endpoint == evidence.endpoint
+                and item.severity == evidence.severity
+                and (
+                    evidence.title.lower() in item.title.lower()
+                    or (
+                        any(
+                            token in item.description
+                            for token in (
+                                "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504"
+                            )
+                        )
+                        and evidence.severity == FindingSeverity.HIGH
+                    )
+                )
+                for item in merged
+            )
+            if not duplicate:
+                merged.append(evidence)
+
+        return merged
+
+    # --------------------------------------------------
     # RESULT ANALYSIS
     # --------------------------------------------------
 
@@ -1037,7 +1292,7 @@ Do not include explanations outside the JSON object.
             "suggestions",
         )
 
-        findings = [
+        model_findings = [
             self._validate_finding(
                 item,
                 request.api_context,
@@ -1046,7 +1301,7 @@ Do not include explanations outside the JSON object.
             for index, item in enumerate(raw_findings, start=1)
         ]
 
-        suggestions = [
+        model_suggestions = [
             self._require_string(
                 suggestion,
                 f"suggestions[{index}]",
@@ -1056,6 +1311,43 @@ Do not include explanations outside the JSON object.
                 start=1,
             )
         ]
+
+        evidence_findings = self._build_evidence_findings(
+            request.test_results,
+            request.api_context,
+        )
+        findings = self._merge_findings(model_findings, evidence_findings)
+
+        # Keep suggestions tied to the supplied evidence rather than
+        # returning generic advice unrelated to the detected failures.
+        suggestions = []
+        if any(
+            finding.severity == FindingSeverity.HIGH
+            for finding in findings
+        ):
+            suggestions.append(
+                "Correlate the failing request with server logs and repeat "
+                "the same test after the server-side issue is addressed."
+            )
+        if evidence_findings:
+            suggestions.append(
+                "Re-run the failed test cases and compare the observed status "
+                "codes with their expected status codes."
+            )
+        if not findings:
+            suggestions = model_suggestions[:3]
+
+        if evidence_findings:
+            summary = (
+                f"Analyzed {len(request.test_results)} execution results and "
+                f"detected {len(findings)} issue(s) supported by the supplied "
+                "test evidence."
+            )
+        elif findings:
+            summary = (
+                f"Analysis identified {len(findings)} finding(s) in the "
+                "supplied API test results."
+            )
 
         response = AIResponse(
             request_type=request.request_type,
