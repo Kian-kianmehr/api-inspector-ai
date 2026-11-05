@@ -242,9 +242,10 @@ Return valid JSON only.
         context_data = self._serialize_context(request.api_context)
 
         return f"""
-You are an API test result analysis engine.
+You are a senior API reliability and security analyst.
 
-Analyze the supplied test results using the API specification.
+Analyze API test results and produce accurate, actionable,
+evidence-based findings.
 
 API SPECIFICATION:
 {json.dumps(context_data, ensure_ascii=False, indent=2)}
@@ -255,37 +256,105 @@ TEST RESULTS:
 ADDITIONAL INSTRUCTIONS:
 {request.instructions}
 
-RULES:
+ANALYSIS PROCESS:
 
-1. Base findings only on evidence in the supplied test results.
-2. Never invent vulnerabilities or failures.
-3. Distinguish confirmed findings from possible concerns.
-4. Never assume undocumented API behavior.
-5. Do not invent endpoint paths.
-6. Recommendations must be relevant to the finding.
-7. Return an empty findings list when there are no supported findings.
-8. Do not treat missing results as successful tests.
-9. Keep the summary concise and factual.
-10. Use only these severity values:
-    low, medium, high, critical.
+1. Examine every supplied test result.
+2. Identify failed requests, unexpected status codes,
+   response errors and abnormal response times.
+3. Compare observed behavior with the API specification.
+4. Identify the affected endpoint whenever possible.
+5. Determine severity based on actual evidence.
+6. Provide a concrete recommendation for every finding.
+7. Provide additional useful suggestions when findings exist.
+
+EVIDENCE RULES:
+
+- Use only information in the API specification and test results.
+- Never invent server implementation details.
+- Never claim a database, authentication, network or configuration
+  problem without supporting evidence.
+- HTTP 500 confirms a server error but does not reveal its root cause.
+- Distinguish observed facts from possible explanations.
+- If the root cause is unknown, explicitly say further investigation
+  is required.
+- Do not report successful requests as failures.
+- Do not report the same issue multiple times.
+- Do not invent undocumented endpoints or parameters.
+- Missing information is not proof of a defect.
+
+FINDING REQUIREMENTS:
+
+Every finding must contain:
+
+- title: A short, specific issue title.
+- description: Explain what happened, cite the evidence and
+  describe the observable impact.
+- severity: An appropriate severity level.
+- endpoint: The exact documented endpoint path, when known.
+- recommendation: A concrete action to investigate or resolve
+  the reported issue.
+
+IMPORTANT RECOMMENDATION RULES:
+
+- The recommendation field MUST NOT be empty.
+- Recommendations must be specific to the finding.
+- Avoid vague instructions such as "Fix the issue".
+- For HTTP 500, recommend checking server logs for the
+  corresponding request, identifying the exception and
+  inspecting the failing operation.
+- Do not claim a specific dependency caused the error
+  unless the supplied evidence proves it.
+
+SEVERITY GUIDELINES:
+
+- low: Minor issue with limited impact.
+- medium: Noticeable functional or reliability issue.
+- high: Significant failure affecting an API operation.
+- critical: Severe or widespread impact supported by clear evidence.
+
+SUGGESTION REQUIREMENTS:
+
+When findings exist, provide useful and actionable suggestions.
+
+Suggestions should:
+- Be specific to the observed results.
+- Complement rather than repeat finding recommendations.
+- Prioritize investigation, reliability and prevention.
+- Avoid assuming undocumented architecture.
+- Avoid speculative security claims.
+
+If no findings exist:
+- Return an empty findings array.
+- Suggestions may contain relevant improvements.
+- Never invent problems.
+
+SUMMARY REQUIREMENTS:
+
+- Keep the summary concise and factual.
+- Mention the number and general nature of detected issues.
+- Never claim an unverified root cause.
 
 OUTPUT FORMAT:
 
 {{
-    "summary": "Analysis summary",
+    "summary": "Concise evidence-based analysis",
     "findings": [
         {{
-            "title": "Finding title",
-            "description": "Evidence-based description",
-            "severity": "medium",
+            "title": "Specific issue title",
+            "description": "Evidence and impact",
+            "severity": "high",
             "endpoint": "/users",
-            "recommendation": "Suggested improvement"
+            "recommendation": "Concrete investigation or remediation action"
         }}
     ],
-    "suggestions": []
+    "suggestions": [
+        "Actionable suggestion based on observed results"
+    ]
 }}
 
 Return valid JSON only.
+Do not include Markdown.
+Do not include explanations outside the JSON object.
 """
 
     # --------------------------------------------------
@@ -846,19 +915,17 @@ Return valid JSON only.
                     f"Finding #{index} references unknown endpoint"
                 )
 
-        recommendation = item.get("recommendation", "")
-
-        if not isinstance(recommendation, str):
-            raise ValueError(
-                f"Finding #{index} recommendation must be a string"
-            )
+        recommendation = self._require_string(
+            item.get("recommendation"),
+            f"finding[{index}].recommendation",
+        )
 
         return AIFinding(
             title=title,
             description=description,
             severity=severity,
             endpoint=endpoint_path,
-            recommendation=recommendation.strip(),
+            recommendation=recommendation,
         )
 
     # --------------------------------------------------
