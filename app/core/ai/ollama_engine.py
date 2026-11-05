@@ -1134,6 +1134,8 @@ Do not include explanations outside the JSON object.
             )
             explicitly_failed = (
                 result.get("passed") is False
+                or result.get("success") is False
+                or result.get("ok") is False
                 or status_text in {
                     "failed", "fail", "error", "errored", "unsuccessful"
                 }
