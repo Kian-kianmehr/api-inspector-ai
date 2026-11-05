@@ -381,6 +381,36 @@ def test_analysis_reports_failed_documented_404_response(
     assert "404" in response.findings[0].title
 
 
+def test_analysis_recognizes_success_false_as_failure(
+    monkeypatch,
+    api_context,
+):
+    ai = OllamaAI()
+    request = AIRequest(
+        request_type=AIRequestType.RESULT_ANALYSIS,
+        api_context=api_context,
+        test_results=[
+            {
+                "name": "Legacy runner failed",
+                "endpoint": "/users",
+                "method": "GET",
+                "status_code": 200,
+                "success": False,
+            }
+        ],
+    )
+    mock_model_response(
+        monkeypatch,
+        ai,
+        {"summary": "No issues detected.", "findings": [], "suggestions": []},
+    )
+
+    response = ai.analyze_results(request)
+
+    assert len(response.findings) == 1
+    assert response.findings[0].severity == FindingSeverity.MEDIUM
+
+
 def test_analysis_does_not_flag_a_passing_documented_response(
     monkeypatch,
     api_context,
